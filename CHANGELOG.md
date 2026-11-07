@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format follows
 More reliable window switching, audio, notifications and display controls, with better GIF exports, large-image editing and compact-panel behavior. New options improve window dragging, shortcut setup and uninstaller selection.
 
 ### Added
+- The mixer has a per-output-device equalizer with 3 (low, mid, high; default), 5, 10 or 15 bands and a preamp. Band layouts follow tone-control and ISO graphic-EQ conventions. Changes glide in without clicks, and boosts pass through the existing limiter. A switched-off or flat equalizer leaves audio untouched and taps no apps.
 - The window switcher can ignore hover selection while preserving clicks, keyboard navigation and hovered-window closing. Overflowing icon rows still slide at their edges. The option starts off. Thanks to @victorioustr.
 - Edge snapping can restore a window's previous size when it is dragged by its title bar, preserving manual resizing and using the size confirmed by the app. The option starts off and respects ignored apps. Thanks to @nisayera.
 - Both uninstaller result views offer a Select all checkbox with a mixed state, including optional rows when explicitly selected and preserving removal safeguards. Thanks to @heyseere.

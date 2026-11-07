@@ -31,6 +31,9 @@ enum MixerRenderContinuityTests {
         let configuration = Configuration()
         let tapChannels: Int
         let limiterBox: LimiterBox
+        /// The production callback runs a device equalizer when one is
+        /// attached; continuity is checked without one.
+        let equalizerProcessor: EqualizerProcessor? = nil
 
         init(tapChannels: Int = 2, channelCapacity: Int? = nil) {
             self.tapChannels = tapChannels

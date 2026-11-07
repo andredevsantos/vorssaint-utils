@@ -532,10 +532,14 @@ enum MixerRoutingSupport {
                                selectedOutputDeviceUID: String?,
                                targetOutputDeviceUID: String?,
                                defaultOutputDeviceUID: String?,
-                               universalOutputRouteUID: String? = nil) -> Bool {
+                               universalOutputRouteUID: String? = nil,
+                               equalizerActive: Bool = false) -> Bool {
         guard hasAudioObjects else { return false }
         guard let targetOutputDeviceUID else { return false }
         if !isUnity(volume) { return true }
+        // An audible equalizer on the app's output only reaches the app
+        // through the mixer's own render path.
+        if equalizerActive, !isAirPlaySentinel(targetOutputDeviceUID) { return true }
         if let selectedOutputDeviceUID {
             // An explicit route still matters when it happens to be the
             // system default: a Wine game may keep its old device open.
@@ -547,13 +551,16 @@ enum MixerRoutingSupport {
 
     /// The last gate before a tap is built: a row is tapped only when the user
     /// adjusted its volume, chose its output, or asked to move all audio to an
-    /// output that this process did not follow. Merely listing an app never
-    /// makes it part of a tap.
+    /// output that this process did not follow, or turned on an equalizer for
+    /// the output it plays to. Merely listing an app never makes it part of a
+    /// tap.
     static func rowMayBeTapped(savedVolume: Double?,
                                savedRouteUID: String?,
                                defaultOutputDeviceUID: String?,
-                               universalOutputRouteUID: String? = nil) -> Bool {
+                               universalOutputRouteUID: String? = nil,
+                               equalizerActive: Bool = false) -> Bool {
         if let savedVolume, !isUnity(savedVolume) { return true }
+        if equalizerActive { return true }
         if savedRouteUID != nil { return true }
         guard let universalOutputRouteUID else { return false }
         return universalOutputRouteUID == defaultOutputDeviceUID

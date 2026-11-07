@@ -47,6 +47,11 @@ enum MixerUniversalRoutingContract {
         static var reads: [(AudioObjectID, AudioObjectPropertySelector, AudioObjectPropertyScope)] = []
         static var writes: [(AudioObjectID, AudioObjectPropertySelector)] = []
         static var writeStatus: OSStatus = noErr
+        /// Device UIDs with an audible equalizer.
+        var audibleEqualizers: Set<String> = []
+        func isEqualizerAudible(on deviceUID: String?) -> Bool {
+            deviceUID.map { audibleEqualizers.contains($0) } ?? false
+        }
         static func objectList(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector,
                                scope: AudioObjectPropertyScope) -> [AudioObjectID] {
             reads.append((object, selector, scope))

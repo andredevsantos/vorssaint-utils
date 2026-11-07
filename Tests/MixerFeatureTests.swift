@@ -811,7 +811,7 @@ enum MixerFeatureTests {
                      && levelWatch.contains("mScope: kAudioObjectPropertyScopeOutput")
                      && mixerCode.components(separatedBy: "LevelCompensationWatch.started(objects: objects)").count == 3,
                      "both engines follow the app to another output, on the scope the HAL announces it")
-        let engineInits = ["init?(objects: [AudioObjectID], gain: Float, outputDeviceUID: String)",
+        let engineInits = ["init?(objects: [AudioObjectID], gain: Float, outputDeviceUID: String,",
                            "init?(appID: String, objects: [AudioObjectID], gain: Float, clockDeviceUID: String)"]
             .map { signature in
                 mixerCode.range(of: signature).flatMap { start in

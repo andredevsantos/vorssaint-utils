@@ -329,3 +329,26 @@ enum MixerRender {
         return written
     }
 }
+
+/// A float the audio thread reads while another thread replaces it, one
+/// whole value at a time and without a lock.
+final class AtomicFloatBox {
+    private var bits: Int32
+
+    init(_ value: Float) {
+        bits = Int32(bitPattern: value.bitPattern)
+    }
+
+    var value: Float {
+        get {
+            Float(bitPattern: UInt32(bitPattern: OSAtomicAdd32Barrier(0, &bits)))
+        }
+        set {
+            let replacement = Int32(bitPattern: newValue.bitPattern)
+            while true {
+                let current = OSAtomicAdd32Barrier(0, &bits)
+                if OSAtomicCompareAndSwap32Barrier(current, replacement, &bits) { return }
+            }
+        }
+    }
+}

@@ -335,6 +335,7 @@ if (( TEST )); then
         Sources/Vorssaint/Core/FeaturePresets.swift
         Sources/Vorssaint/Core/FeatureHubStrings.swift
         Sources/Vorssaint/Core/MixerScreenSharingStrings.swift
+        Sources/Vorssaint/Core/MixerEqualizerStrings.swift
         Sources/Vorssaint/Core/ShortcutSettingsStrings.swift
         Sources/Vorssaint/Core/SwitcherShortcutStrings.swift
         Sources/Vorssaint/Core/SettingsBackupSupport.swift
@@ -432,6 +433,8 @@ if (( TEST )); then
         Sources/Vorssaint/UI/MenuPanel/MixerAppDragSource.swift
         Sources/Vorssaint/Services/Audio/BoostLimiter.swift
         Sources/Vorssaint/Services/Audio/MixerRender.swift
+        Sources/Vorssaint/Services/Audio/EqualizerSupport.swift
+        Sources/Vorssaint/Services/Audio/MixerEqualizer.swift
         Sources/Vorssaint/Services/Audio/PreciseVolumeRollerSupport.swift
         Sources/Vorssaint/Services/DockPreview/DockPreviewSupport.swift
         Sources/Vorssaint/Services/DockPreview/DockAutohideHold.swift

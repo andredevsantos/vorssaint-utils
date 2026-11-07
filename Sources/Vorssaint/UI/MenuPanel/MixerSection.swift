@@ -82,6 +82,9 @@ struct MixerSection: View {
     private var audioDevicesSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             universalOutputPicker
+            if AppVolumeMixer.isSupported {
+                MixerEqualizerDisclosure()
+            }
             systemSoundOutputPicker
             microphonePicker
             if let outputSwitchError = mixer.outputSwitchError {

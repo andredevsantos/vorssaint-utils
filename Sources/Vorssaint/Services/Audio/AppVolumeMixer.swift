@@ -94,6 +94,14 @@ final class AppVolumeMixer: ObservableObject {
     /// own toggle hides it, so the panel can offer to bring any of them back.
     @Published private(set) var hiddenApps: [MixerHiddenApp] = []
 
+    /// Per output device equalizers, keyed by device UID. Published so the
+    /// panel redraws; the source of truth is the stored preference.
+    @Published private(set) var equalizers: [String: EqualizerSettings] = [:]
+    private var equalizersLoadedFrom: [String: String]?
+    /// What the engines on each device read. Created on first use and kept,
+    /// so an engine built before a change still hears the change.
+    private var equalizerParameters: [String: EqualizerParameters] = [:]
+
     private var engines: [String: any GainEngine] = [:]
     /// Arbitrates the engine builds running off-main: it suppresses duplicate
     /// builds while a slider keeps dragging, and discards a build that lands
@@ -238,6 +246,7 @@ final class AppVolumeMixer: ObservableObject {
     /// matching app produces sound — no panel interaction needed.
     func start() {
         stopped = false
+        loadEqualizersIfNeeded()
         processMonitoringEnabled = AppFeature.mixer.isAvailable
         if processMonitoringEnabled {
             publishHiddenApps()
@@ -1322,10 +1331,12 @@ final class AppVolumeMixer: ObservableObject {
             return
         }
 
+        let equalizer = equalizerParameters(for: targetOutputDeviceUID)
         buildQueue.async { [weak self] in
             let engine = TapGainEngine(objects: app.audioObjects,
                                        gain: MixerRoutingSupport.gain(forVolume: app.volume),
-                                       outputDeviceUID: targetOutputDeviceUID)
+                                       outputDeviceUID: targetOutputDeviceUID,
+                                       equalizer: equalizer)
             DispatchQueue.main.async {
                 guard let self else {
                     engine?.stop()
@@ -1463,7 +1474,8 @@ final class AppVolumeMixer: ObservableObject {
             savedVolume: storedVolume(for: app.identity, saved: savedVolumes()),
             savedRouteUID: storedRoute(for: app.identity, saved: savedOutputDeviceUIDs()),
             defaultOutputDeviceUID: app.effectiveOutputDeviceUID,
-            universalOutputRouteUID: app.universalOutputRouteUID)
+            universalOutputRouteUID: app.universalOutputRouteUID,
+            equalizerActive: isEqualizerAudible(on: app.effectiveOutputDeviceUID))
     }
 
     private func appNeedsEngine(_ app: MixerApp) -> Bool {
@@ -1476,7 +1488,61 @@ final class AppVolumeMixer: ObservableObject {
                                            selectedOutputDeviceUID: app.selectedOutputDeviceUID,
                                            targetOutputDeviceUID: app.effectiveOutputDeviceUID,
                                            defaultOutputDeviceUID: app.effectiveOutputDeviceUID,
-                                           universalOutputRouteUID: app.universalOutputRouteUID)
+                                           universalOutputRouteUID: app.universalOutputRouteUID,
+                                           equalizerActive: isEqualizerAudible(on: app.effectiveOutputDeviceUID))
+    }
+
+    // MARK: - Equalizer
+
+    /// The equalizer saved for one output device, flat when there is none.
+    func equalizerSettings(for deviceUID: String) -> EqualizerSettings {
+        equalizers[deviceUID] ?? .flat
+    }
+
+    /// Main thread. Saves the device's equalizer and hands it to every engine
+    /// already playing there. Turning it audible or flat changes which apps
+    /// need a tap, so that also reconciles the engines.
+    func setEqualizerSettings(_ settings: EqualizerSettings, for deviceUID: String) {
+        guard !deviceUID.isEmpty, !MixerRoutingSupport.isAirPlaySentinel(deviceUID) else { return }
+        loadEqualizersIfNeeded()
+        let wasAudible = (equalizers[deviceUID] ?? .flat).isAudible
+        var updated = equalizers
+        updated[deviceUID] = settings == .flat ? nil : settings
+        let stored = EqualizerStore.encode(updated)
+        UserDefaults.standard.set(stored, forKey: DefaultsKey.mixerEqualizers)
+        equalizersLoadedFrom = stored
+        equalizers = updated
+        equalizerParameters[deviceUID]?.apply(settings)
+        if wasAudible != settings.isAudible { refreshApps() }
+    }
+
+    private func isEqualizerAudible(on deviceUID: String?) -> Bool {
+        guard let deviceUID, !MixerRoutingSupport.isAirPlaySentinel(deviceUID) else { return false }
+        return equalizerSettings(for: deviceUID).isAudible
+    }
+
+    /// The parameters an engine on `deviceUID` reads, or nil for an output
+    /// the equalizer does not cover.
+    private func equalizerParameters(for deviceUID: String) -> EqualizerParameters? {
+        guard !MixerRoutingSupport.isAirPlaySentinel(deviceUID) else { return nil }
+        if let existing = equalizerParameters[deviceUID] { return existing }
+        let parameters = EqualizerParameters(equalizerSettings(for: deviceUID))
+        equalizerParameters[deviceUID] = parameters
+        return parameters
+    }
+
+    /// Reads the stored equalizers again when the preference changed under
+    /// the mixer, as a settings restore does.
+    private func loadEqualizersIfNeeded() {
+        let stored = UserDefaults.standard.dictionary(forKey: DefaultsKey.mixerEqualizers)
+            as? [String: String] ?? [:]
+        guard stored != equalizersLoadedFrom else { return }
+        equalizersLoadedFrom = stored
+        let decoded = EqualizerStore.decode(stored)
+        for (uid, parameters) in equalizerParameters {
+            parameters.apply(decoded[uid] ?? .flat)
+        }
+        if decoded != equalizers { equalizers = decoded }
     }
 
     private func applyOutputRoute(to app: inout MixerApp,
@@ -1539,6 +1605,8 @@ final class AppVolumeMixer: ObservableObject {
     /// everything published, every engine and every listener record is touched
     /// back on the main thread, where it lives.
     func refreshApps() {
+        // A restore can replace the stored equalizers under the mixer.
+        loadEqualizersIfNeeded()
         // A throttled refresh can land after stop(); watching is over.
         guard listenerInstalled else { return }
         // A pass already reading the HAL holds the slot: running a second one
@@ -3104,29 +3172,6 @@ final class LevelCompensationWatch {
     }
 }
 
-/// A float the audio thread reads while another thread replaces it, one
-/// whole value at a time and without a lock.
-final class AtomicFloatBox {
-    private var bits: Int32
-
-    init(_ value: Float) {
-        bits = Int32(bitPattern: value.bitPattern)
-    }
-
-    var value: Float {
-        get {
-            Float(bitPattern: UInt32(bitPattern: OSAtomicAdd32Barrier(0, &bits)))
-        }
-        set {
-            let replacement = Int32(bitPattern: newValue.bitPattern)
-            while true {
-                let current = OSAtomicAdd32Barrier(0, &bits)
-                if OSAtomicCompareAndSwap32Barrier(current, replacement, &bits) { return }
-            }
-        }
-    }
-}
-
 /// Observes the contract captured by one IO callback. A format notification
 /// suspends rendering immediately; HAL reads happen on a separate queue. A
 /// real change leaves the old callback silent until the mixer replaces it.
@@ -3367,7 +3412,8 @@ private final class TapGainEngine: GainEngine {
     private var configuration: MixerTapConfiguration?
     private var levelWatch: LevelCompensationWatch?
 
-    init?(objects: [AudioObjectID], gain: Float, outputDeviceUID: String) {
+    init?(objects: [AudioObjectID], gain: Float, outputDeviceUID: String,
+          equalizer: EqualizerParameters? = nil) {
         tappedObjects = objects
         gainBox.value = min(max(gain, 0), Float(AppVolumeMixer.maxVolume))
         self.outputDeviceUID = outputDeviceUID
@@ -3430,6 +3476,13 @@ private final class TapGainEngine: GainEngine {
         // would not fit, so a boosted app gets louder without distorting.
         let limiterBox = LimiterBox(
             channelCapacity: max(2, outputChannels.reduce(0, +)))
+        // The device's equalizer runs after the gain and before the limiter,
+        // so a boosted band is caught by the same ceiling as a boosted app.
+        let equalizerProcessor = equalizer.map {
+            EqualizerProcessor(parameters: $0,
+                               channelCapacity: max(2, outputChannels.reduce(0, +)),
+                               sampleRate: sampleRate)
+        }
         releaseBox.value = BoostLimiter.release(sampleRate: sampleRate)
         let release = releaseBox
         let cycles = cycleBox
@@ -3443,6 +3496,7 @@ private final class TapGainEngine: GainEngine {
                 MixerRender.silence(outputBuffers)
                 limiterBox.reset()
                 appliedGain.reset()
+                equalizerProcessor?.reset()
                 return
             }
             // The output clock keeps moving through a short or missing tap
@@ -3470,6 +3524,7 @@ private final class TapGainEngine: GainEngine {
                 appliedGain.reset()
                 return
             }
+            equalizerProcessor?.process(outputBuffers, frames: frames)
             cycles.increment()
         }) == noErr else {
             ioProc = nil
